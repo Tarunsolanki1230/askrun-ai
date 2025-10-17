@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Askrun AI</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1a1a1a; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        #container { width:100%; max-width:900px; padding:24px; box-sizing:border-box; }
+        #chat { width: 100%; height: 360px; overflow-y: auto; border: 2px solid #ff6600; padding: 12px; margin-bottom: 10px; background: #111; border-radius:8px }
+        #controls { display:flex; gap:8px; }
+        #user-input { flex:1; padding:10px; border-radius:6px; border:none; }
+        #send-btn { padding:10px 16px; border-radius:6px; border:none; background:#ff6600; color:#fff; cursor:pointer }
+        #mic-btn { padding:10px 14px; border-radius:6px; border:none; background:#222; color:#ff6600; cursor:pointer; }
+        .user { color: #00ffcc; }
+        .askrun { color: #ff6600; }
+        .message { margin: 6px 0; }
+        #avatar-wrap { display:flex; justify-content:center; margin-bottom:12px }
+        #avatar { border-radius:12px; border:3px solid #ff6600; object-fit:cover; box-shadow:0 4px 24px rgba(0,0,0,0.4) }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="avatar-wrap"><img id="avatar" src="/frames/frame02400.png" alt="avatar" width="220" height="220"></div>
+        <div id="chat"></div>
+        <div id="controls">
+            <input type="text" id="user-input" placeholder="Type your message...">
+            <button id="mic-btn" title="Speak"><span id="mic-icon">🎤</span></button>
+            <button id="send-btn">Send</button>
+        </div>
+        <div id="status" style="margin-top:8px; text-align:center; color:#f6f6f6; opacity:0.9; font-size:0.95em"></div>
+    </div>
+
+    <script>
+    // All JS is here - no stray code in the HTML body
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const micBtn = document.getElementById('mic-btn');
+    const micIcon = document.getElementById('mic-icon');
+    const avatar = document.getElementById('avatar');
+
+    function appendMessage(sender, text) {
+        const msg = document.createElement('div');
+        msg.className = 'message ' + sender;
+        msg.innerText = text;
+        chat.appendChild(msg);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    let frames = [];
+    let animInterval = null;
+
+    async function loadFrames() {
+        try {
+            const res = await fetch('/frames_list');
+            const data = await res.json();
+            frames = data.frames || [];
+            if (frames.length) avatar.src = '/frames/' + frames[0];
+        } catch (e) { frames = []; console.error('Failed to load frames', e); }
+    }
+
+    function startAvatar() {
+        if (!frames.length) return;
+        let i = 0;
+        if (animInterval) clearInterval(animInterval);
+        animInterval = setInterval(() => { avatar.src = '/frames/' + frames[i % frames.length]; i++ }, 60);
+    }
+    function stopAvatar() { if (animInterval) { clearInterval(animInterval); animInterval = null } }
+
+    // TTS
+    let voices = [];
+    function loadVoices() {
+        voices = window.speechSynthesis.getVoices() || [];
+    }
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
+    function pickFemaleVoice() {
+        if (!voices.length) return null;
+        const pref = ['zira','samantha','amy','aria','kendra','female','google','victoria'];
+        for (const p of pref) { const v = voices.find(x => x.name && x.name.toLowerCase().includes(p)); if (v) return v }
+        return voices[0];
+    }
+
+    function speakText(text) {
+        if (!('speechSynthesis' in window)) return;
+        const voice = pickFemaleVoice();
+        const u = new SpeechSynthesisUtterance(text);
+        if (voice) u.voice = voice;
+        u.rate = 1.0; u.pitch = 1.0;
+        u.onstart = () => startAvatar();
+        u.onend = () => stopAvatar();
+        u.onerror = () => stopAvatar();
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+    }
+
+    // Mic (SpeechRecognition)
+    let recognition = null; let recognizing = false;
+    function setupMic() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const status = document.getElementById('status');
+        micBtn.disabled = true; // enable after permission
+        if (!SpeechRecognition) {
+            micBtn.disabled = true; micBtn.title = 'Speech recognition not supported';
+            if (status) status.innerText = 'Microphone: speech recognition not supported in this browser.';
+            console.warn('SpeechRecognition not available');
+            return;
+        }
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                // stop tracks immediately; recognition API will capture audio separately
+                stream.getTracks().forEach(t => t.stop());
+                recognition = new SpeechRecognition();
+                recognition.lang = 'en-US';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+                recognition.onstart = () => { recognizing = true; micIcon.textContent='🔴'; micBtn.style.background='#ff6600'; micBtn.style.color='#fff'; if (status) status.innerText = 'Listening...'; };
+                recognition.onend = () => { recognizing = false; micIcon.textContent='🎤'; micBtn.style.background=''; micBtn.style.color=''; if (status) status.innerText = ''; };
+                recognition.onerror = (ev) => { recognizing = false; micIcon.textContent='🎤'; micBtn.style.background=''; micBtn.style.color=''; if (status) status.innerText = 'Microphone error: ' + (ev.error || ev.message || 'unknown'); console.error('Recognition error', ev); };
+                recognition.onresult = (e) => { const t = e.results[0][0].transcript; input.value = t; sendMessage(); };
+                micBtn.addEventListener('click', () => { try { if (!recognizing) recognition.start(); else recognition.stop(); } catch(err) { console.error('Recognition start/stop failed', err); if (status) status.innerText = 'Microphone error: ' + (err.message || err); } });
+                micBtn.disabled = false; micBtn.title = 'Speak';
+            }).catch(err => {
+                micBtn.disabled = true; micBtn.title = 'Microphone access denied or not found';
+                if (status) status.innerText = 'Microphone access denied or not available. Check system settings and allow microphone access.';
+                console.warn('getUserMedia failed', err);
+            });
+        } else {
+            micBtn.disabled = true; micBtn.title = 'Microphone APIs not available';
+            if (status) status.innerText = 'Microphone APIs not available in this browser.';
+            console.warn('navigator.mediaDevices.getUserMedia not available');
+        }
+    }
+
+    // Send message
+    async function sendMessage() {
+        const msg = input.value.trim(); if (!msg) return;
+        appendMessage('user','You: ' + msg); input.value = '';
+        try {
+            const res = await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})});
+            const data = await res.json(); const text = data.response || (data.error?('Error: '+data.error):'No response');
+            appendMessage('askrun','Askrun: ' + text);
+            speakText(text);
+        } catch (e) { stopAvatar(); appendMessage('askrun','Askrun: Error calling server') }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    input.addEventListener('keypress', (e)=>{ if (e.key==='Enter') sendMessage() });
+
+    // Init
+    loadFrames(); setupMic();
+    </script>
+</body>
+</html>
