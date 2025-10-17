@@ -1,0 +1,5 @@
+flask
+gpt4all
+pyttsx3
+SpeechRecognition
+pillow
