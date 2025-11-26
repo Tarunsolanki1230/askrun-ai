@@ -259,7 +259,12 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             return reply
 
     # GPT4All response
-    prompt = f"{conversation_history}User: {user_input}\nAskrun:"
+    # Add a short runtime instruction layer to bias responses toward concise, helpful, Siri/ChatGPT-style replies.
+    prompt = (
+        f"{conversation_history}"
+        f"Always respond in a clear, human tone similar to a helpful assistant — concise, direct, and when providing instructions use short numbered steps.\n"
+        f"User: {user_input}\nAskrun:"
+    )
     try:
         # Ensure model is loaded (lazy load). If it fails, return the error message.
         ok, err = load_model()
@@ -267,12 +272,18 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             error_msg = f"Model not available: {err}"
             speak(error_msg, gui, enable_tts=enable_tts)
             return error_msg
-        response = model.generate(prompt, max_tokens=80, temp=0.3, top_p=0.9, repeat_penalty=1.2, streaming=False)
+        # Use a higher token budget and conservative temperature to produce clear, practical replies.
+        response = model.generate(
+            prompt,
+            max_tokens=220,
+            temp=0.18,
+            top_p=0.9,
+            repeat_penalty=1.1,
+            streaming=False,
+        )
 
         reply = str(response).strip()
-        # Remove bracketed meta lines like the model's internal instructions shown in brackets
-        # e.g. [Your responses will include a mix of humor, wit, kindness...]
-        # Remove single-line bracketed or parenthesized meta notes (e.g. [..] or (Note: ...))
+        # Remove bracketed meta lines (e.g. '[...]' or single-line parenthesized notes) from the model output
         def keep_line(line):
             s = line.strip()
             if not s:

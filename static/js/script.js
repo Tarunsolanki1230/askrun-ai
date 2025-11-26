@@ -38,8 +38,21 @@ async function loadFrames(){
   }catch(e){ console.warn('Failed to load frames', e); }
 }
 
-function startAvatar(){ if(!frames.length) return; stopAvatar(); animIndex = 0; animInterval = setInterval(()=>{ avatarImg.src = '/frames/' + frames[animIndex % frames.length]; animIndex++; }, 75); }
-function stopAvatar(){ if(animInterval){ clearInterval(animInterval); animInterval = null; } }
+function startAvatar(frameDelay = 75){
+  if(!frames.length) return;
+  stopAvatar();
+  animIndex = 0;
+  // faster animation when speaking (smaller delay)
+  animInterval = setInterval(()=>{
+    avatarImg.src = '/frames/' + frames[animIndex % frames.length];
+    animIndex++;
+  }, frameDelay);
+}
+function stopAvatar(restFrame = 0){
+  if(animInterval){ clearInterval(animInterval); animInterval = null; }
+  // set avatar to a neutral resting frame if available
+  try{ if(frames.length && restFrame < frames.length) avatarImg.src = '/frames/' + frames[restFrame]; } catch(e){}
+}
 
 // Speech & TTS
 function loadVoices(){ voices = window.speechSynthesis.getVoices() || []; }
@@ -50,7 +63,23 @@ function pickVoice(){ if(!voices.length) return null; const preference=['zira','
   return voices.find(v=>v.lang && v.lang.startsWith('en')) || voices[0];
 }
 
-function speak(text){ if(!('speechSynthesis' in window)) return; const utter = new SpeechSynthesisUtterance(text); const v = pickVoice(); if(v) utter.voice = v; utter.rate=1; utter.pitch=1; utter.onstart = ()=>startAvatar(); utter.onend=()=>stopAvatar(); utter.onerror=()=>stopAvatar(); window.speechSynthesis.cancel(); window.speechSynthesis.speak(utter); }
+// speak returns a Promise that resolves when speaking finishes (or immediately if no TTS available)
+function speak(text){
+  return new Promise((resolve)=>{
+    if(!('speechSynthesis' in window)) return resolve(false);
+    const utter = new SpeechSynthesisUtterance(text);
+    const v = pickVoice(); if(v) utter.voice = v;
+    utter.rate = 1;
+    utter.pitch = 1;
+    utter.onstart = ()=> startAvatar(50); // speed up animation while speaking
+    utter.onend = ()=> { stopAvatar(); resolve(true); };
+    utter.onerror = ()=> { stopAvatar(); resolve(false); };
+    try{
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utter);
+    } catch(e){ console.warn('TTS failed', e); resolve(false); }
+  });
+}
 
 // Microphone (SpeechRecognition) with permission flow
 let recognition = null; let recognizing = false;
@@ -79,9 +108,18 @@ async function sendMessage(){
     text = cleanupModelText(text);
     // speed & personality post-processing: ensure short voice-friendly intro
     pushMessage('askrun', text, 'ASKRUN • ' + new Date().toLocaleTimeString());
-    speak(text);
-  }catch(err){ console.error('send failed',err); pushMessage('askrun','There was a problem contacting the assistant. Try again.'); }
-  finally{ pending=false; setStatus(''); stopAvatar(); }
+    // speak and await TTS so avatar doesn't stop prematurely
+    const hadSpeech = await speak(text);
+    if(!hadSpeech){
+      // estimate a short duration based on message length so avatar still shows activity
+      const wpm = 160;
+      const words = text.split(/\s+/).filter(Boolean).length;
+      const estMs = Math.min(12000, Math.max(800, Math.round(words / wpm * 60 * 1000)));
+      await new Promise(r=>setTimeout(r, estMs));
+      stopAvatar();
+    }
+  }catch(err){ console.error('send failed',err); pushMessage('askrun','There was a problem contacting the assistant. Try again.'); stopAvatar(); }
+  finally{ pending=false; setStatus(''); /* stopAvatar handled by speak or error branch */ }
 }
 
 // keyboard
