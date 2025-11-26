@@ -102,21 +102,27 @@ async function sendMessage(){
   if(pending) return; const msg = inputEl.value.trim(); if(!msg) return; pending=true; pushMessage('you', msg, new Date().toLocaleTimeString()); inputEl.value=''; setStatus('Sending…'); startAvatar();
   try{
     // Add light pre-processing to make the assistant more helpful — we include a small user-intent hint
+    // show 'thinking' state (do NOT animate frames yet) while the model is generating
+    setStatus('Thinking...');
+    avatarImg && avatarImg.classList.add('thinking');
     const response = await fetch('/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: msg}) });
     const data = await response.json();
     let text = data.response || (data.error ? ('Error: '+data.error) : 'No response');
+    // model returned — clear thinking indicator
+    avatarImg && avatarImg.classList.remove('thinking');
+    setStatus('');
     text = cleanupModelText(text);
     // speed & personality post-processing: ensure short voice-friendly intro
     pushMessage('askrun', text, 'ASKRUN • ' + new Date().toLocaleTimeString());
-    // speak and await TTS so avatar doesn't stop prematurely
+    // speak and await TTS so avatar will animate only during speech
     const hadSpeech = await speak(text);
-    if(!hadSpeech){
-      // estimate a short duration based on message length so avatar still shows activity
-      const wpm = 160;
-      const words = text.split(/\s+/).filter(Boolean).length;
+    if (!hadSpeech) {
+      // no TTS available — briefly animate frames for the estimated spoken duration
+      const wpm = 160; const words = text.split(/\s+/).filter(Boolean).length;
       const estMs = Math.min(12000, Math.max(800, Math.round(words / wpm * 60 * 1000)));
-      await new Promise(r=>setTimeout(r, estMs));
-      stopAvatar();
+      startAvatar(65);
+      await new Promise(r => setTimeout(r, estMs));
+      stopAvatar(0);
     }
   }catch(err){ console.error('send failed',err); pushMessage('askrun','There was a problem contacting the assistant. Try again.'); stopAvatar(); }
   finally{ pending=false; setStatus(''); /* stopAvatar handled by speak or error branch */ }
