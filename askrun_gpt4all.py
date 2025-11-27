@@ -7,7 +7,13 @@ import pyttsx3
 import speech_recognition as sr
 from gpt4all import GPT4All
 from datetime import datetime
-import tkinter as tk
+# tkinter (and other GUI libs) may not be available on headless servers (e.g. Render).
+try:
+    import tkinter as tk
+    _HAS_TK = True
+except Exception:
+    tk = None
+    _HAS_TK = False
 
 # ==== USER INFO ====
 USER_NAME = "Tarun Solanki"
@@ -139,43 +145,58 @@ def is_code(text):
     return False
 
 # ==== Avatar GUI ====
-class AvatarGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Askrun AI")
-        self.window_width = 400
-        self.window_height = 400
-        self.root.geometry(f"{self.window_width}x{self.window_height}")
-        self.root.resizable(False, False)
+if _HAS_TK:
+    class AvatarGUI:
+        def __init__(self, root):
+            self.root = root
+            self.root.title("Askrun AI")
+            self.window_width = 400
+            self.window_height = 400
+            self.root.geometry(f"{self.window_width}x{self.window_height}")
+            self.root.resizable(False, False)
 
-        self.label = tk.Label(root)
-        self.label.pack(expand=True)
+            self.label = tk.Label(root)
+            self.label.pack(expand=True)
 
-        # simple visual indicator state (no image frames)
-        self.animating = False
-
-    def load_frames(self):
-        # frames removed; keep method for compatibility
-        return
-
-    def start_animation(self):
-        # simple indicator: change label text to show speaking state
-        try:
-            self.animating = True
-            self.label.config(text='ASKRUN — speaking…', bg='#0b2940', fg='#eaf6ff')
-        except Exception:
-            pass
-
-    def show_frame(self):
-        # no-op (frames removed)
-        return
-
-    def stop_animation(self):
-        try:
+            # simple visual indicator state (no image frames)
             self.animating = False
-            self.label.config(text='ASKRUN', bg=None, fg=None)
-        except Exception:
-            pass
+
+        def load_frames(self):
+            # frames removed; keep method for compatibility
+            return
+
+        def start_animation(self):
+            # simple indicator: change label text to show speaking state
+            try:
+                self.animating = True
+                self.label.config(text='ASKRUN — speaking…', bg='#0b2940', fg='#eaf6ff')
+            except Exception:
+                pass
+
+        def show_frame(self):
+            # no-op (frames removed)
+            return
+
+        def stop_animation(self):
+            try:
+                self.animating = False
+                self.label.config(text='ASKRUN', bg=None, fg=None)
+            except Exception:
+                pass
+
+else:
+    # Headless server fallback: minimal no-op AvatarGUI so the module imports fine
+    class AvatarGUI:
+        def __init__(self, root=None):
+            self.animating = False
+        def load_frames(self):
+            return
+        def start_animation(self):
+            self.animating = True
+        def show_frame(self):
+            return
+        def stop_animation(self):
+            self.animating = False
 
 # ==== Generate reply ====
 def generate_reply(user_input, gui=None, enable_tts=True):
