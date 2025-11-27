@@ -139,6 +139,37 @@ conversation_history = (
 )
 import re
 
+import json
+
+def _call_openai_chat(user_input, max_tokens=150, model_name=None):
+    """Call OpenAI ChatCompletion as a fallback. Returns text or raises Exception.
+    This is lazy and will raise if OPENAI_API_KEY is not set or library is unavailable.
+    """
+    key = os.environ.get('OPENAI_API_KEY')
+    if not key:
+        raise RuntimeError('OPENAI_API_KEY not configured')
+
+    try:
+        import openai
+    except Exception as e:
+        raise RuntimeError('openai library not installed') from e
+
+    openai.api_key = key
+    # choose default model if not provided
+    model = model_name or os.environ.get('OPENAI_MODEL', 'gpt-3.5-turbo')
+
+    # small instruction layer to keep responses concise and assistant-like
+    messages = [
+        {"role": "system", "content": "You are Askrun, a calm, confident personal assistant. Keep replies concise and helpful (aim for 1-3 short paragraphs unless user asks for more)."},
+        {"role": "user", "content": user_input}
+    ]
+
+    resp = openai.ChatCompletion.create(model=model, messages=messages, max_tokens=max_tokens, temperature=0.3)
+    if not resp or 'choices' not in resp or not resp['choices']:
+        raise RuntimeError('OpenAI returned no choices')
+    text = resp['choices'][0]['message']['content']
+    return str(text).strip()
+
 def is_code(text):
     # Simple heuristic: contains code-like symbols or keywords
     code_keywords = ["def ", "class ", "import ", "public ", "private ", "function ", "var ", "let ", "const ", "#include", "System.out", "print(", "<html", "</", "{", "}", ";", "=>"]
@@ -301,9 +332,16 @@ def generate_reply(user_input, gui=None, enable_tts=True):
         # Ensure model is loaded (lazy load). If it fails, return the error message.
         ok, err = load_model()
         if not ok:
-            error_msg = f"Model not available: {err}"
-            speak(error_msg, gui, enable_tts=enable_tts)
-            return error_msg
+            # try OpenAI fallback if available
+            try:
+                reply = _call_openai_chat(user_input, max_tokens=120)
+                conversation_history += f"User: {user_input}\nAskrun: {reply}\n"
+                speak(reply, gui, enable_tts=enable_tts)
+                return reply
+            except Exception:
+                error_msg = f"Model not available: {err}"
+                speak(error_msg, gui, enable_tts=enable_tts)
+                return error_msg
         # Use a higher token budget and conservative temperature to produce clear, practical replies.
         # Choose a faster, pragmatic generation config. Shorter max_tokens for speed
         # and lower temperature for consistent replies. Adjust token budget by input size.
@@ -315,7 +353,8 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             token_budget = 60
         else:
             token_budget = 100
-        response = model.generate(
+        try:
+            response = model.generate(
             prompt,
             max_tokens=token_budget,
             temp=0.1,
@@ -323,6 +362,17 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             repeat_penalty=1.05,
             streaming=False,
         )
+        except Exception as e:
+            # try OpenAI fallback if model generation failed
+            try:
+                reply = _call_openai_chat(user_input, max_tokens=token_budget)
+                conversation_history += f"User: {user_input}\nAskrun: {reply}\n"
+                speak(reply, gui, enable_tts=enable_tts)
+                return reply
+            except Exception:
+                error_msg = f"Model error: {e}"
+                speak(error_msg, gui, enable_tts=enable_tts)
+                return error_msg
 
         reply = str(response).strip()
         # Remove bracketed meta lines (e.g. '[...]' or single-line parenthesized notes) from the model output

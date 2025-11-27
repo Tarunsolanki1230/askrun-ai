@@ -4,3 +4,4 @@ pyttsx3
 SpeechRecognition
 pillow
 gunicorn
+openai

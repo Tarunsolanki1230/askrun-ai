@@ -8,7 +8,8 @@ This project is a local/hosted assistant named *ASKRUN* — a Jarvis-inspired, e
   - `static/css/style.css` — premium layout + animations
   - `static/js/script.js` — client-side logic: TTS, mic, waveform visualizer, avatar sync, assistant UX
 - Improved assistant personality & prompts in `askrun_gpt4all.py` to be Jarvis-like: calm, confident, emotive, helpful, and step-focused.
- - Kept backend endpoints: `/` (UI) and `/ask` (POST). The project no longer serves animated frame images — the frontend uses a waveform visualizer and a static avatar.
+- Kept backend endpoints: `/` (UI) and `/ask` (POST). The project no longer serves animated frame images — the frontend uses a waveform visualizer and a static avatar.
+ - If a local GPT4All model is not available on the server, the app can optionally fall back to OpenAI (ChatCompletion) using an `OPENAI_API_KEY` environment variable. This makes deployments on Render fast and reliable without needing to upload a large local model.
 
 ## How to run locally (Windows PowerShell)
 1. Activate your virtualenv (recommended):
@@ -44,6 +45,11 @@ http://127.0.0.1:5000
   - animates the avatar while playing speech
   - posts messages to `/ask`
   - uses Web Speech API for TTS and microphone (browser-dependent)
+
+  ## Deploy notes — OpenAI fallback on Render
+
+  - For fast, reliable deployments on Render, set an environment variable named `OPENAI_API_KEY` in Render's service settings. When the app starts or a request arrives and a local `MODEL_PATH` is empty/missing, Askrun will automatically use OpenAI's ChatCompletion API to generate replies.
+  - If you prefer to use a local GPT4All model, upload or download the model into the instance and set `MODEL_PATH` accordingly; otherwise enabling `OPENAI_API_KEY` is the quickest way to get a working app on Render.
 
 ## Making the assistant perform local/system tasks (safe approach)
 To perform system-level tasks you must always ask explicit user permission. Here are safe, real-world options:
