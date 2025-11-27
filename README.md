@@ -6,9 +6,9 @@ This project is a local/hosted assistant named *ASKRUN* — a Jarvis-inspired, e
 - Reworked the frontend to a premium glassmorphism UI (mobile-friendly, animated avatar).
   - `templates/index.html` — main UI template (integrates with backend)
   - `static/css/style.css` — premium layout + animations
-  - `static/js/script.js` — client-side logic: frames, TTS, mic, avatar sync, assistant UX
+  - `static/js/script.js` — client-side logic: TTS, mic, waveform visualizer, avatar sync, assistant UX
 - Improved assistant personality & prompts in `askrun_gpt4all.py` to be Jarvis-like: calm, confident, emotive, helpful, and step-focused.
-- Kept backend endpoints: `/` (UI), `/ask` (POST), `/frames_list` and `/frames/<file>` for avatars.
+ - Kept backend endpoints: `/` (UI) and `/ask` (POST). The project no longer serves animated frame images — the frontend uses a waveform visualizer and a static avatar.
 
 ## How to run locally (Windows PowerShell)
 1. Activate your virtualenv (recommended):
@@ -40,7 +40,7 @@ http://127.0.0.1:5000
 - `templates/index.html` — referenced static files and defines layout
 - `static/css/style.css` — the responsive, glass-morphism CSS design
 - `static/js/script.js` — main client code that:
-  - loads frame PNGs from `/frames_list`
+  - UI uses a static avatar and a waveform visualizer (sound-line) when ASKRUN speaks. Animated PNG frames were removed.
   - animates the avatar while playing speech
   - posts messages to `/ask`
   - uses Web Speech API for TTS and microphone (browser-dependent)

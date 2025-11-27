@@ -4,6 +4,31 @@ import os
 
 app = Flask(__name__)
 
+
+# Ensure model warmup starts once (some Flask versions lack before_first_request)
+_warmup_started = False
+
+@app.before_request
+def background_model_warmup():
+    global _warmup_started
+    if _warmup_started:
+        return
+    _warmup_started = True
+    def _warm():
+        try:
+            # import module lazily and try to load the model (safe to fail)
+            m = importlib.import_module('askrun_gpt4all')
+            ok, err = m.load_model()
+            if ok:
+                app.logger.info('ASKRUN model warmup successful.')
+            else:
+                app.logger.warning('ASKRUN model warmup failed: %s', err)
+        except Exception as e:
+            app.logger.exception('Warmup import/load failed: %s', e)
+
+    import threading
+    threading.Thread(target=_warm, daemon=True).start()
+
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -21,29 +46,20 @@ def ask():
     except Exception as e:
         return jsonify({'error': f'Failed to import model module: {e}'}), 500
 
-    # Call the ask helper without TTS
+    # Call the ask helper without TTS and measure time to help debug latency
     try:
+        import time
+        start = time.time()
         response = askrun.ask(message, use_tts=False)
+        duration = time.time() - start
+        app.logger.info('Generated reply in %.2f sec for message length %d', duration, len(message))
     except Exception as e:
+        app.logger.exception('Error generating response: %s', e)
         return jsonify({'error': f'Error while generating response: {e}'}), 500
-    return jsonify({'response': response})
+    return jsonify({'response': response, 'duration_seconds': round(duration, 3)})
 
 
-@app.route('/frames/<path:filename>')
-def frames_file(filename):
-    # Serve image frames from the frames folder
-    frames_dir = os.path.join(app.root_path, 'frames')
-    return send_from_directory(frames_dir, filename)
-
-
-@app.route('/frames_list')
-def frames_list():
-    frames_dir = os.path.join(app.root_path, 'frames')
-    try:
-        files = sorted([f for f in os.listdir(frames_dir) if f.lower().endswith('.png')])
-    except Exception:
-        files = []
-    return jsonify({'frames': files})
+# the frames endpoints were removed (UI now uses waveform visualizer)
 
 if __name__ == "__main__":
     app.run(debug=True)

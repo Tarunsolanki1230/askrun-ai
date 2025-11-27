@@ -8,16 +8,17 @@ import speech_recognition as sr
 from gpt4all import GPT4All
 from datetime import datetime
 import tkinter as tk
-from PIL import Image, ImageTk
 
 # ==== USER INFO ====
 USER_NAME = "Tarun Solanki"
 
-# ==== MODEL PATH ====
-MODEL_PATH = r"C:\Users\HP\AppData\Local\nomic.ai\GPT4All\Llama-3.2-1B-Instruct-Q4_0.gguf"
+# ==== MODEL PATH (NOW DYNAMIC) ====
+# Construct path using environment variables for portability
+LOCAL_APP_DATA = os.environ.get('LOCALAPPDATA')
+MODEL_NAME = "Llama-3.2-1B-Instruct-Q4_0.gguf"
+MODEL_PATH = os.path.join(LOCAL_APP_DATA, "nomic.ai", "GPT4All", MODEL_NAME) if LOCAL_APP_DATA else ""
 
-# ==== FRAME FOLDER ====
-FRAME_FOLDER = "frames"
+# (Frames animation removed — UI uses waveform / static avatar now)
 
 # ==== Special users and messages ====
 special_users = {
@@ -94,6 +95,13 @@ def load_model():
     global model, model_load_error
     if model is not None:
         return True, None
+    
+    if not MODEL_PATH or not os.path.exists(MODEL_PATH):
+        error_msg = f"Model file not found at '{MODEL_PATH}'. Please ensure the model is downloaded."
+        model_load_error = error_msg
+        print("Error loading GPT4All model:", error_msg)
+        return False, error_msg
+
     try:
         print("Loading GPT4All model...")
         model = GPT4All(MODEL_PATH)
@@ -143,39 +151,31 @@ class AvatarGUI:
         self.label = tk.Label(root)
         self.label.pack(expand=True)
 
-        self.frames = []
-        self.load_frames()
+        # simple visual indicator state (no image frames)
         self.animating = False
-        self.frame_index = 0
 
     def load_frames(self):
-        if not os.path.exists(FRAME_FOLDER):
-            print(f"Frame folder '{FRAME_FOLDER}' not found!")
-            return
-        files = sorted(os.listdir(FRAME_FOLDER))
-        for f in files:
-            if f.endswith(".png"):
-                path = os.path.join(FRAME_FOLDER, f)
-                img = Image.open(path).resize((self.window_width, self.window_height))
-                self.frames.append(ImageTk.PhotoImage(img))
-        if not self.frames:
-            print("No frames found in 'frames' folder!")
+        # frames removed; keep method for compatibility
+        return
 
     def start_animation(self):
-        if not self.frames:
-            return
-        self.animating = True
-        self.show_frame()
+        # simple indicator: change label text to show speaking state
+        try:
+            self.animating = True
+            self.label.config(text='ASKRUN — speaking…', bg='#0b2940', fg='#eaf6ff')
+        except Exception:
+            pass
 
     def show_frame(self):
-        if self.animating:
-            frame = self.frames[self.frame_index]
-            self.label.config(image=frame)
-            self.frame_index = (self.frame_index + 1) % len(self.frames)
-            self.root.after(30, self.show_frame)
+        # no-op (frames removed)
+        return
 
     def stop_animation(self):
-        self.animating = False
+        try:
+            self.animating = False
+            self.label.config(text='ASKRUN', bg=None, fg=None)
+        except Exception:
+            pass
 
 # ==== Generate reply ====
 def generate_reply(user_input, gui=None, enable_tts=True):
@@ -259,10 +259,16 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             return reply
 
     # GPT4All response
+    # Keep conversation context reasonable to avoid huge prompts which slow generation
+    ctx = conversation_history
+    if len(ctx) > 2000:
+        ctx = ctx[-2000:]
+
     # Add a short runtime instruction layer to bias responses toward concise, helpful, Siri/ChatGPT-style replies.
     prompt = (
-        f"{conversation_history}"
+        f"{ctx}"
         f"Always respond in a clear, human tone similar to a helpful assistant — concise, direct, and when providing instructions use short numbered steps.\n"
+        f"Keep replies short and practical: aim for under 60 words unless the user asks for more detail.\n"
         f"User: {user_input}\nAskrun:"
     )
     try:
@@ -273,12 +279,22 @@ def generate_reply(user_input, gui=None, enable_tts=True):
             speak(error_msg, gui, enable_tts=enable_tts)
             return error_msg
         # Use a higher token budget and conservative temperature to produce clear, practical replies.
+        # Choose a faster, pragmatic generation config. Shorter max_tokens for speed
+        # and lower temperature for consistent replies. Adjust token budget by input size.
+        # dynamic token budget: keep short inputs fast, favor snappier replies
+        # even more aggressive budgets for snappier replies
+        if len(user_input) < 40:
+            token_budget = 30
+        elif len(user_input) < 200:
+            token_budget = 60
+        else:
+            token_budget = 100
         response = model.generate(
             prompt,
-            max_tokens=220,
-            temp=0.18,
-            top_p=0.9,
-            repeat_penalty=1.1,
+            max_tokens=token_budget,
+            temp=0.1,
+            top_p=0.8,
+            repeat_penalty=1.05,
             streaming=False,
         )
 
