@@ -3,8 +3,7 @@ import time
 import threading
 import webbrowser
 import random
-import pyttsx3
-import speech_recognition as sr
+# audio / speech libs are imported lazily inside speak() / listen() so this module can import on headless servers
 from gpt4all import GPT4All
 from datetime import datetime
 # tkinter (and other GUI libs) may not be available on headless servers (e.g. Render).
@@ -49,6 +48,7 @@ def speak(text, gui=None, enable_tts=True):
     print(f"Askrun: {text}")
     if enable_tts:
         try:
+            import pyttsx3
             engine = pyttsx3.init('sapi5')
             voices = engine.getProperty('voices')
             female_voice = next((v.id for v in voices if "female" in v.name.lower() or "zira" in v.name.lower()), voices[0].id)
@@ -60,7 +60,7 @@ def speak(text, gui=None, enable_tts=True):
             engine.stop()
             del engine
         except Exception as e:
-            print("TTS error:", e)
+            print("TTS error (pyttsx3 unavailable or failed):", e)
 
     if gui:
         try:
@@ -70,8 +70,13 @@ def speak(text, gui=None, enable_tts=True):
     time.sleep(0.2)
 
 # ==== Listen function ====
-recognizer = sr.Recognizer()
 def listen():
+    try:
+        import speech_recognition as sr
+    except Exception:
+        print('SpeechRecognition not available in this environment')
+        return None
+    recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         print("\nListening... Speak now!")
         recognizer.adjust_for_ambient_noise(source, duration=1)
